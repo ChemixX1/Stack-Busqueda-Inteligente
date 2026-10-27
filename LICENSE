@@ -1,0 +1,51 @@
+Licencia Stack con condición de estrella — versión 1.0
+
+Copyright (c) 2026 ChemixX1
+
+Proyecto: Stack - Búsqueda Inteligente
+Repositorio original: https://github.com/ChemixX1/Stack-Busqueda-Inteligente
+
+1. Permiso
+
+Se permite usar, ejecutar, copiar, modificar y distribuir este software y sus
+versiones modificadas, con fines personales o comerciales, siempre que se
+cumplan las condiciones siguientes.
+
+2. Condición de estrella
+
+Antes de usar el software, la persona usuaria debe dar una estrella (Star)
+al repositorio original indicado arriba desde su cuenta de GitHub y
+mantenerla mientras continúe usando el software. Para una organización,
+basta una estrella de la cuenta de una persona responsable de ese uso.
+Si GitHub o el repositorio original dejan de estar disponibles, esta condición
+queda suspendida mientras dure esa indisponibilidad.
+
+La condición se refiere a quien instala, ejecuta o integra el software;
+no se exige una estrella a cada visitante de una instancia web desplegada.
+Esta licencia no limita los derechos de visualización y bifurcación que
+GitHub concede a través de sus propias condiciones de servicio.
+
+3. Atribución y distribución
+
+Las copias y redistribuciones deben conservar este aviso de copyright,
+esta licencia y el enlace al repositorio original. Las versiones modificadas
+deben identificar que contienen modificaciones. Quien reciba una copia
+queda sujeto a estas mismas condiciones para su uso.
+
+4. Componentes de terceros
+
+Esta licencia cubre únicamente el código original de este proyecto.
+Las dependencias, tipografías, marcas y contenidos de terceros conservan
+sus respectivas licencias y derechos. Una estrella no concede derechos
+sobre contenido de las páginas web analizadas.
+
+5. Sin garantía
+
+EL SOFTWARE SE ENTREGA TAL CUAL, SIN GARANTÍAS EXPRESAS NI IMPLÍCITAS,
+INCLUIDAS LAS DE COMERCIABILIDAD, IDONEIDAD PARA UN FIN PARTICULAR O
+AUSENCIA DE INFRACCIÓN. EN LA MEDIDA PERMITIDA POR LA LEY APLICABLE,
+LOS AUTORES NO RESPONDEN POR DAÑOS, RECLAMACIONES U OTRAS RESPONSABILIDADES
+DERIVADAS DEL SOFTWARE O DE SU USO.
+
+Esta es una licencia personalizada con una condición adicional de uso;
+no es una licencia MIT ni una licencia de código abierto aprobada por la OSI.

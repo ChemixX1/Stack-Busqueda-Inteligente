@@ -1,0 +1,8 @@
+qa/
+exports/
+*.log
+*.log.*
+*.tsbuildinfo
+coverage/
+test-results/
+playwright-report/
