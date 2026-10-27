@@ -4,7 +4,7 @@ Herramienta web para captar páginas que requieran soporte o rediseño total. Pe
 
 Desarrollada con **Next.js 16, React 19, TypeScript, Cheerio y Lucide**, y desplegada en **Vercel**.
 
-[Abrir Stack](https://stack-radar-taupe.vercel.app) · [Repositorio](https://github.com/ChemixX1/Stack-Busqueda-Inteligente) · [Licencia](LICENSE)
+[Abrir Stack](https://stack-busqueda-inteligente.vercel.app) · [Repositorio](https://github.com/ChemixX1/Stack-Busqueda-Inteligente) · [Licencia](LICENSE)
 
 ## Licencia y uso
 

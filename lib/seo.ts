@@ -119,5 +119,5 @@ export function resolveSiteUrl(): string {
     }
   }
 
-  return 'https://stack-radar-taupe.vercel.app';
+  return 'https://stack-busqueda-inteligente.vercel.app';
 }

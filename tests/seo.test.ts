@@ -37,9 +37,9 @@ test('SEO metadata description and site URL resolution are clean, indexable and 
 
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
     process.env.VERCEL_URL = 'stack-private-preview.vercel.app';
-    assert.equal(resolveSiteUrl(), 'https://stack-radar-taupe.vercel.app');
+    assert.equal(resolveSiteUrl(), 'https://stack-busqueda-inteligente.vercel.app');
     process.env.NEXT_PUBLIC_SITE_URL = 'https://user:secret@example.com';
-    assert.equal(resolveSiteUrl(), 'https://stack-radar-taupe.vercel.app');
+    assert.equal(resolveSiteUrl(), 'https://stack-busqueda-inteligente.vercel.app');
   } finally {
     if (prevPublic === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
     else process.env.NEXT_PUBLIC_SITE_URL = prevPublic;
