@@ -208,3 +208,36 @@ test('internet-wide categories cover manga, digital SaaS, services, gaming and m
   ]);
   assert.deepEqual(candidates.map(item => item.url), ['https://mangalector-indie.org/', 'https://saas-herramienta.io/']);
 });
+
+test('manga discovery requires topic evidence and excludes dictionary and acronym matches', () => {
+  const unrelated = [
+    { url: 'https://lactationtraining.com/', title: 'Lactation Education Resources - LER', description: 'Education and training' },
+    { url: 'https://en.wiktionary.org/wiki/manga', title: 'manga - Wiktionary', description: 'Dictionary definition' },
+    { url: 'https://salud.example.org/', title: 'Leer sobre salud', description: 'Consejos de bienestar' },
+  ];
+  const relevant = ['Lee manga online', 'Read comics', 'Fumetti online', 'Bande dessinée', 'Novelas ligeras', '漫画を読む', '漫畫閱讀', '웹툰 플랫폼', 'قراءة مانجا', 'मंगा पढ़ें'].map((title, index) => ({
+    url: `https://reader-${index}.example.org/`, title, description: '',
+  }));
+  const results = filterCandidates([...unrelated, ...relevant], 12, 'Manga, anime y cómics');
+  assert.deepEqual(results.map(item => item.url), relevant.map(item => item.url));
+  assert.equal(filterCandidates([unrelated[0]], 12, 'Educación').length, 1);
+});
+
+test('manga search supplements an irrelevant provider response with relevant fallback results', async () => {
+  const key = process.env.BRAVE_SEARCH_API_KEY;
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  try {
+    const calls: URL[] = [];
+    const fallback = '<rss><channel><item><title>Read manga online</title><link>https://reader.example.org/</link><description>Comics and manga</description></item></channel></rss>';
+    const result = await searchWeb({ query: '', country: 'ALL', category: 'Manga, anime y cómics', limit: 1 }, mockFetch([
+      new Response(html('https://lactationtraining.com/')),
+      new Response(fallback),
+    ], calls));
+    assert.equal(calls.length, 2);
+    assert.equal(result.provider, 'Bing RSS');
+    assert.deepEqual(result.results.map(item => item.url), ['https://reader.example.org/']);
+  } finally {
+    if (key === undefined) delete process.env.BRAVE_SEARCH_API_KEY;
+    else process.env.BRAVE_SEARCH_API_KEY = key;
+  }
+});

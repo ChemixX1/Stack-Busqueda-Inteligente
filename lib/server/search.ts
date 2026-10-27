@@ -524,6 +524,7 @@ type Candidate = { url: string; title: string; description: string };
 const editorialGuide = /(?:^|\.)(guide\.michelin\.com|lefooding\.com|timeout\.[a-z.]+|lonelyplanet\.com|cntraveler\.com|travelandleisure\.com|theworlds50best\.com|eater\.com|fodor[s]?\.com|roughguides\.com)$/i;
 const governmentDomain = /(?:^|\.)(?:gov(?:\.[a-z]{2})?|gob\.[a-z]{2}|gouv\.[a-z]{2})$/i;
 const editorialCategories = new Set<string>(['Medios, blogs y portales', 'Lectura, libros y novelas', 'Manga, anime y cómics', 'Foros y comunidades', 'Videojuegos y comunidades']);
+const mangaEvidence = /manga|manhwa|manhua|webtoon|webcomic|anime|c[oó]mic|fumett|bande dessin[eé]e|historiet|novelas? ligeras?|light novels?|漫画|漫畫|マンガ|まんが|アニメ|만화|웹툰|애니메이션|مانجا|مانغا|أنمي|मंगा|मांगा|कॉमिक/i;
 export function filterCandidates(candidates: Candidate[], limit = 12, category = ''): Candidate[] {
   const allowEditorial = editorialCategories.has(category);
   const allowDirectories = category === 'Marketplaces y clasificados';
@@ -531,6 +532,9 @@ export function filterCandidates(candidates: Candidate[], limit = 12, category =
   for (const item of candidates) {
     try {
       const url = normalizeUrl(item.url); const host = url.hostname.replace(/^www\./, '');
+      if (/(?:^|\.)wiktionary\.org$/i.test(host)) continue;
+      // Public providers may interpret "leer" or "ler" as an unrelated acronym.
+      if (category === 'Manga, anime y cómics' && !mangaEvidence.test(`${host} ${url.pathname} ${item.title} ${item.description}`)) continue;
       if (seen.has(host) || aggregator.test(host) || (!allowEditorial && editorialGuide.test(host)) || governmentDomain.test(host) || /\.(?:pdf|docx?|xlsx?|zip|jpg|png|webp|gif|svg|mp4)$/i.test(url.pathname)) continue;
       if (!allowEditorial && /\/(?:blog|news|noticias?|articles?|art[ií]culos?)(?:\/|-|$)/i.test(url.pathname)) continue;
       if (!allowDirectories && /\/(?:directorio|directory|annuaire)(?:\/|-|$)/i.test(url.pathname)) continue;
