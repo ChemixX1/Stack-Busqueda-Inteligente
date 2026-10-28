@@ -59,14 +59,69 @@ export function extractContacts(html: string, source: string): Contact[] {
   return contacts.slice(0, 12);
 }
 
+// www and bare host links often coexist on the same public business website.
+// Other subdomains and lookalike domains are separate sites.
+export function isSameContactSite(candidate: URL, base: URL): boolean {
+  return ['http:', 'https:'].includes(candidate.protocol) && !candidate.username && !candidate.password &&
+    !candidate.port && candidate.hostname.replace(/^www\./, '') === base.hostname.replace(/^www\./, '');
+}
+
+function isReviewablePage(url: URL, base: URL): boolean {
+  const path = decodeURIComponent(url.pathname);
+  return isSameContactSite(url, base) &&
+    !/\.(?:pdf|jpe?g|png|gif|svg|webp|ico|zip|rar|docx?|xlsx?|pptx?|mp[34]|webm|css|js|woff2?|xml|json|rss|txt)(?:\/)?$/i.test(path) &&
+    !/(?:^|\/)(?:api|wp-admin|wp-json|login|logout|sign-?in|sign-?out|sign-?up|register|registro|iniciar-sesion|cerrar-sesion|cart|carrito|checkout|account|mi-cuenta|search|buscar|feed)(?:\/|\.|$)/i.test(path) &&
+    ![...url.searchParams.keys()].some(key => /^(?:s|search|q|add-to-cart|action|logout|token)$/i.test(key));
+}
+
 export function contactPages(html: string, base: string): string[] {
-  const $ = load(html); const origin = new URL(base).origin; const urls: { url: string; priority: number }[] = [];
+  const $ = load(html); const baseUrl = new URL(base); baseUrl.hash = '';
+  const urls: { url: string; priority: number }[] = [];
   $('a[href]').each((_, el) => {
-    const text = `${$(el).text()} ${$(el).attr('href')}`;
-    if (!/contact|contato|kontakt|contatti|quienes-somos|sobre-nosotros|acerca|about|soporte|support|impressum|联系我们|お問い合わせ|تواصل|контакты/i.test(text)) return;
-    try { const url = new URL($(el).attr('href')!, base); url.hash = ''; if (url.origin === origin && url.href !== base && !urls.some(item => item.url === url.href) && !/\.(pdf|jpg|png|zip)$/i.test(url.pathname)) urls.push({ url: url.href, priority: /contact|contato|kontakt|contatti/i.test(text) ? 0 : 1 }); } catch { /* invalid link */ }
+    const href = $(el).attr('href')?.trim() ?? '';
+    if (!href || href.startsWith('#')) return;
+    let label = `${$(el).text()} ${$(el).attr('aria-label') ?? ''} ${$(el).attr('title') ?? ''} ${href}`;
+    try { label = decodeURIComponent(label); } catch { /* preserve labels with malformed escapes */ }
+    label = label.normalize('NFD').replace(/\p{M}/gu, '').replace(/[-_]+/g, ' ');
+    const direct = /contact|contato|kontakt|contatti|fale conosco|escribenos|llamanos|联系我们|お問い合わせ|تواصل|контакты/i.test(label);
+    if (!direct && !/\b(?:nosotros|quienes somos|sobre nos|acerca|about|company|empresa|equipo|soporte|support|ayuda|help|faq|impressum|legal)\b/i.test(label)) return;
+    try {
+      const url = new URL(href, baseUrl); url.hash = '';
+      for (const key of [...url.searchParams.keys()]) if (/^(?:utm_.+|fbclid|gclid)$/i.test(key)) url.searchParams.delete(key);
+      if (!isReviewablePage(url, baseUrl) || url.href === baseUrl.href || urls.some(item => item.url === url.href)) return;
+      urls.push({ url: url.href, priority: direct ? 0 : 1 });
+    } catch { /* invalid link */ }
   });
-  return urls.sort((a, b) => a.priority - b.priority).slice(0, 2).map(item => item.url);
+  return urls.sort((a, b) => a.priority - b.priority).slice(0, 6).map(item => item.url);
+}
+
+export function reviewPages(html: string, base: string): string[] {
+  const contacts = contactPages(html, base);
+  const $ = load(html); const baseUrl = new URL(base); baseUrl.hash = '';
+  const candidates: { url: string; priority: number; section: string }[] = [];
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href')?.trim() ?? '';
+    if (!href || href.startsWith('#')) return;
+    try {
+      const url = new URL(href, baseUrl); url.hash = '';
+      for (const key of [...url.searchParams.keys()]) if (/^(?:utm_.+|fbclid|gclid)$/i.test(key)) url.searchParams.delete(key);
+      const path = decodeURIComponent(url.pathname);
+      if (!isReviewablePage(url, baseUrl) || url.href === baseUrl.href || contacts.includes(url.href) || candidates.some(item => item.url === url.href)) return;
+      const label = `${$(el).text()} ${$(el).attr('aria-label') ?? ''} ${path}`;
+      const priority = /servici|service|product|producto|catalog|solucion|solution|oferta|pricing|precio|portfolio|proyecto/i.test(label) ? 0 : 1;
+      const section = path.split('/').filter(part => part && !/^[a-z]{2}(?:-[a-z]{2})?$/i.test(part))[0] ?? '/';
+      candidates.push({ url: url.href, priority, section });
+    } catch { /* invalid public navigation link */ }
+  });
+  // Sample different sections before following many products from one catalogue.
+  candidates.sort((a, b) => a.priority - b.priority);
+  const sections = new Set<string>();
+  const first = candidates.filter(item => {
+    if (sections.has(item.section)) return false;
+    sections.add(item.section); return true;
+  });
+  const rest = candidates.filter(item => !first.includes(item));
+  return [...contacts, ...first.map(item => item.url), ...rest.map(item => item.url)].slice(0, 16);
 }
 
 export function analyzeHtml(response: PublicResponse, country = 'ALL', category = 'Otros'): Audit {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { contactMessage, contactWhatsappUrl, csvFile, emailUrl, formatPhone, localizedContactMessage, localizedEmailSubject, parseImport, resolveSiteLanguage, uniqueContacts, whatsappUrl } from '../lib/client';
 import type { Prospect } from '../lib/types';
+import { canReuseAudit, CONTACT_SCAN_VERSION } from '../lib/audit-version';
 
 const prospect = (): Prospect => ({
   id: 'abc123', url: 'https://negocio.org/', domain: 'negocio.org', name: 'Tienda Sur', description: 'Productos para el hogar', country: 'PE', category: 'Comercio y tiendas', status: 'active', score: 25,
@@ -82,6 +83,74 @@ test('cached records preserve content metrics while rejecting invalid imported c
   for (const count of [-1, 2.5, null, '4200', 10_000_001]) {
     assert.throws(() => parseImport(JSON.stringify([{ ...site, metrics: { ...site.metrics, wordCount: count } }])));
   }
+});
+
+test('contact scan versions survive backups while legacy saved records remain readable', () => {
+  const site = { ...prospect(), contactScanVersion: CONTACT_SCAN_VERSION };
+  const [restored] = parseImport(JSON.stringify([site]));
+  assert.equal(restored.contactScanVersion, CONTACT_SCAN_VERSION);
+  assert.equal(parseImport(JSON.stringify([prospect()]))[0].contactScanVersion, undefined);
+  for (const version of [0, -1, 1.5, null, '2', 1_000_001]) {
+    assert.throws(() => parseImport(JSON.stringify([{ ...site, contactScanVersion: version }])));
+  }
+});
+
+test('site-wide review evidence and crawl coverage survive backup and browser restoration', () => {
+  const site = prospect();
+  site.issues[0].sources = ['https://negocio.org/', 'https://negocio.org/servicios'];
+  site.pageReviews = [
+    { url: site.url, score: 25, issueIds: ['viewport'], metrics: { ...site.metrics, wordCount: 250, linkCount: 10 } },
+    { url: 'https://negocio.org/servicios', score: 30, issueIds: ['viewport', 'missing-title'], metrics: { ...site.metrics, title: false, wordCount: 1200 } },
+  ];
+  site.crawl = { attempted: 3, failed: 1, limit: 10, limited: false };
+  const [restored] = parseImport(JSON.stringify({ version: 1, prospects: [site] }));
+  assert.deepEqual(restored.issues, site.issues);
+  assert.deepEqual(restored.pageReviews, site.pageReviews);
+  assert.deepEqual(restored.crawl, site.crawl);
+  assert.equal(restored.note, site.note);
+  assert.equal(restored.stage, site.stage);
+  const [legacy] = parseImport(JSON.stringify([prospect()]));
+  assert.equal(legacy.pageReviews, undefined);
+  assert.equal(legacy.crawl, undefined);
+  assert.equal(legacy.issues[0].sources, undefined);
+});
+
+test('import rejects unsafe page evidence, malformed nested reviews and inconsistent crawl coverage', () => {
+  const site = prospect();
+  const page = { url: site.url, score: 25, issueIds: ['viewport'], metrics: site.metrics };
+  const crawl = { attempted: 3, failed: 1, limit: 10, limited: false };
+  for (const badUrl of ['javascript:alert(1)', 'http://127.0.0.1/', 'https://secret.internal', 'https://user:pass@negocio.org']) {
+    assert.throws(() => parseImport(JSON.stringify([{ ...site, pageReviews: [{ ...page, url: badUrl }] }])));
+    assert.throws(() => parseImport(JSON.stringify([{ ...site, issues: [{ ...site.issues[0], sources: [badUrl] }] }])));
+  }
+  for (const badPage of [
+    { ...page, score: -1 }, { ...page, score: 101 }, { ...page, score: '25' },
+    { ...page, issueIds: [{}] }, { ...page, issueIds: Array(101).fill('viewport') },
+    { ...page, metrics: { ...site.metrics, wordCount: 1.5 } },
+    { ...page, metrics: { ...site.metrics, responseMs: -1 } },
+    { ...page, metrics: { ...site.metrics, viewport: 'true' } },
+  ]) assert.throws(() => parseImport(JSON.stringify([{ ...site, pageReviews: [badPage] }])));
+  assert.throws(() => parseImport(JSON.stringify([{ ...site, pageReviews: Array(13).fill(page) }])));
+  assert.throws(() => parseImport(JSON.stringify([{ ...site, issues: [{ ...site.issues[0], sources: Array(13).fill(site.url) }] }])));
+  for (const badCrawl of [
+    { ...crawl, attempted: -1 }, { ...crawl, attempted: 101 }, { ...crawl, attempted: 2.5 },
+    { ...crawl, attempted: null }, { ...crawl, failed: 4 }, { ...crawl, failed: '1' },
+    { ...crawl, limit: 2 }, { ...crawl, limit: 0 }, { ...crawl, limited: 1 },
+  ]) assert.throws(() => parseImport(JSON.stringify([{ ...site, crawl: badCrawl }])));
+});
+
+test('search cache refreshes audits made before the current contact scan without deleting them', () => {
+  const now = Date.parse('2026-10-28T12:00:00.000Z');
+  const site = { ...prospect(), contactScanVersion: CONTACT_SCAN_VERSION, checkedAt: new Date(now - 1000).toISOString() };
+  site.metrics.wordCount = 4200;
+  assert.equal(canReuseAudit(site, now), true);
+  assert.equal(canReuseAudit({ ...site, contactScanVersion: undefined }, now), false);
+  assert.equal(canReuseAudit({ ...site, contactScanVersion: CONTACT_SCAN_VERSION - 1 }, now), false);
+  assert.equal(canReuseAudit({ ...site, checkedAt: new Date(now - 86_400_000).toISOString() }, now), false);
+  assert.equal(canReuseAudit({ ...site, checkedAt: new Date(now + 1000).toISOString() }, now), false);
+  assert.equal(canReuseAudit({ ...site, status: 'blocked' }, now), false);
+  assert.equal(canReuseAudit({ ...site, metrics: { ...site.metrics, wordCount: undefined } }, now), false);
+  assert.equal(canReuseAudit(parseImport(JSON.stringify([site]))[0], now), true);
 });
 
 test('import rejects active links using executable protocols, credentials or local targets', () => {

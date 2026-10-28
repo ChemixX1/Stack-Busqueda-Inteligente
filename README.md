@@ -43,7 +43,13 @@ El inicio móvil conserva una cuadrícula de dos columnas con portada y título.
 
 La búsqueda pública integrada usa DuckDuckGo y un respaldo de Bing. Estos servicios pueden limitar las consultas o devolver pocos resultados. Si hay una clave de Brave configurada, también se puede usar ese proveedor. No se crean negocios ficticios cuando falla una búsqueda.
 
-La revisión consulta el HTML público y páginas de contacto del mismo sitio. Detecta saturación de contenido, enlaces excesivos, jerarquía de títulos, párrafos extensos o repetidos, texto genérico, DOM complejo, scripts bloqueantes, carga inicial, adaptación móvil, accesibilidad y señales de seguridad. Excluye contenido oculto y plantillas cuando son identificables, y limita el peso por categoría para evitar puntuaciones infladas. Conserva recuentos y evidencia; las metadescripciones repetitivas no se usan como resumen del negocio. No mide scroll real ni confirma defectos visuales sin renderizar la página. Un bloqueo o error de conexión queda sin puntuación y no se interpreta como necesidad de rediseño.
+La revisión consulta el HTML público de la página encontrada y recorre enlaces del mismo sitio: contacto, nosotros, soporte, servicios, productos y otras secciones. Si empieza en una página interna, también intenta consultar el inicio. Sigue hasta dos niveles, con un máximo de diez páginas y doce segundos de exploración adicional, con tres solicitudes simultáneas. Es una muestra acotada de las secciones accesibles; no garantiza revisar todas las URL de una web grande ni ejecuta JavaScript.
+
+Cada página recibida se analiza para detectar saturación de contenido, enlaces excesivos, jerarquía de títulos, párrafos extensos o repetidos, texto genérico, DOM complejo, scripts bloqueantes, carga inicial, adaptación móvil, accesibilidad y señales de seguridad. La prioridad global combina los hallazgos de todas las páginas evaluables: cada tipo de problema cuenta una vez con el mayor peso observado y se mantienen los límites por categoría. La ficha muestra páginas revisadas, puntuaciones individuales y fuentes de los hallazgos. Los recuentos globales suman las páginas, por lo que pueden incluir elementos compartidos; la respuesta inicial y PageSpeed corresponden a la página de entrada.
+
+Los contactos se reúnen de las páginas revisadas y conservan su fuente. No encontrar contactos no demuestra que el sitio carezca de ellos. Las fichas anteriores siguen disponibles; se vuelven a analizar al encontrarlas en una búsqueda y también pueden renovarse con «Actualizar análisis».
+
+Se excluyen contenido oculto y plantillas cuando son identificables. Las metadescripciones repetitivas no se usan como resumen del negocio. No se mide scroll real ni se confirman defectos visuales sin renderizar la página. Un bloqueo o error de conexión queda sin puntuación y no se interpreta como necesidad de rediseño; los fallos de páginas internas se informan como límites de cobertura.
 
 La prioridad de 0 a 100 ordena indicios técnicos: no es una calificación estética ni garantiza que el negocio necesite una reestructuración. Conviene abrir las webs priorizadas antes de preparar una propuesta. Los filtros geográficos y de actividad orientan el descubrimiento; no certifican el domicilio del negocio.
 
@@ -62,6 +68,8 @@ Reinicia el servidor al cambiar variables. Las claves solo se leen en el servido
 El título es **Stack - Búsqueda Inteligente**. La descripción, Open Graph y Twitter se generan en el servidor en el idioma detectado a partir del país o las preferencias del navegador, con traducciones locales y una descripción de respaldo. La estructura y el idioma de la interfaz no cambian por esta adaptación.
 
 Se incluyen URL canónica, datos estructurados, imagen social, manifiesto, `robots.txt` y `sitemap.xml`. Las fichas recuperadas desde el navegador no se indexan. El buscador decide el idioma y texto final de sus fragmentos; cambiar los metadatos no garantiza que Google muestre una descripción específica por país. No se anuncian versiones `hreflang` de contenido que no esté traducido.
+
+La portada permite indexación y contiene el nombre completo y una explicación visible del producto en el HTML inicial. Para comprobar por qué no aparece en Google, verifica la propiedad en [Google Search Console](https://search.google.com/search-console), envía `https://stack-busqueda-inteligente.vercel.app/sitemap.xml` e inspecciona la URL de inicio para solicitar su indexación. Este paso requiere acceso a la propiedad. [Google indica](https://developers.google.com/search/docs/crawling-indexing/ask-google-to-recrawl) que el rastreo puede tardar días o semanas y que solicitarlo no garantiza aparecer en resultados.
 
 ## Publicar en Vercel
 

@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Audit } from '../types';
-import { analyzeHtml, contactPages, extractContacts, priorityScore } from './analyze';
+import { contactPages, reviewPages, isSameContactSite, priorityScore } from './analyze';
+import { CONTACT_SCAN_VERSION } from '../audit-version';
+import { analyzeSitePages } from './site-analysis';
 import { normalizeUrl, RequestError, resolvePublicUrl, safeFetch, type PublicResponse } from './safe-fetch';
 
 function unavailable(url: URL, country: string, category: string, status: Audit['status'], detail: string, response?: PublicResponse): Audit {
@@ -32,6 +34,56 @@ async function enrichPageSpeed(audit: Audit) {
   } catch { audit.limitations.push('PageSpeed no pudo completar la prueba móvil en esta consulta. Las métricas permanecen sin evaluar.'); }
 }
 
+async function crawlWebsite(initial: PublicResponse, fetchPage: typeof safeFetch) {
+  const base = new URL(initial.url);
+  const pageKey = (value: string) => {
+    const url = new URL(value);
+    return `${url.hostname.replace(/^www\./, '')}${url.pathname.replace(/\/$/, '')}${url.search}`;
+  };
+  const visited = new Set([pageKey(base.href)]);
+  const analyzed = new Set(visited);
+  const pages: PublicResponse[] = [initial];
+  const candidates = (response: PublicResponse, depth: number) => {
+    const contacts = new Set(contactPages(response.body, response.url));
+    return reviewPages(response.body, response.url).map(url => ({ url, depth, priority: contacts.has(url) ? 0 : 1 }));
+  };
+  const queue = candidates(initial, 1);
+  // Search results may point to an article or product without the site's navigation.
+  const home = new URL('/', base).href;
+  if (home !== base.href && !queue.some(page => page.url === home)) queue.unshift({ url: home, depth: 0, priority: 0 });
+  const deadline = Date.now() + 12000;
+  let attempted = 0; let failed = 0; let depthLimited = false;
+  while (queue.length && attempted < 9 && Date.now() < deadline) {
+    queue.sort((a, b) => a.priority - b.priority);
+    const batch: { url: string; depth: number }[] = [];
+    while (queue.length && batch.length < 3 && attempted + batch.length < 9) {
+      const page = queue.shift()!;
+      const key = pageKey(page.url);
+      if (visited.has(key)) continue;
+      visited.add(key); batch.push(page);
+    }
+    attempted += batch.length;
+    const results = await Promise.allSettled(batch.map(page => fetchPage(page.url, { timeoutMs: Math.max(1, Math.min(4000, deadline - Date.now())), maxBytes: 600000 })));
+    for (let index = 0; index < results.length; index++) {
+      const result = results[index];
+      if (result.status !== 'fulfilled') { failed++; continue; }
+      const page = result.value;
+      if (page.status < 200 || page.status >= 300 || !isSameContactSite(new URL(page.url), base) ||
+          !/html/i.test(page.headers['content-type'] ?? 'text/html') || !page.body.trim() ||
+          /<title>[^<]*(?:just a moment|access denied|attention required|robot check|checking your browser|vercel security checkpoint|verify you are human)/i.test(page.body)) { failed++; continue; }
+      const key = pageKey(page.url);
+      if (analyzed.has(key)) continue;
+      visited.add(key); analyzed.add(key); pages.push(page);
+      if (batch[index].depth < 2) {
+        for (const candidate of candidates(page, batch[index].depth + 1)) {
+          if (!visited.has(pageKey(candidate.url)) && !queue.some(item => pageKey(item.url) === pageKey(candidate.url))) queue.push(candidate);
+        }
+      } else if (reviewPages(page.body, page.url).some(url => !visited.has(pageKey(url)))) depthLimited = true;
+    }
+  }
+  return { pages, attempted: attempted + 1, failed, limited: depthLimited || queue.some(page => !visited.has(pageKey(page.url))) };
+}
+
 export async function auditWebsite(input: { url: string; country?: string; category?: string; usePageSpeed?: boolean }, fetchPage: typeof safeFetch = safeFetch): Promise<Audit> {
   const url = normalizeUrl(input.url); const country = input.country ?? 'ALL'; const category = input.category ?? 'Otros';
   let response: PublicResponse;
@@ -44,14 +96,14 @@ export async function auditWebsite(input: { url: string; country?: string; categ
   if (response.status >= 400 || response.status < 200) return unavailable(new URL(response.url), country, category, 'unreachable', `El servidor devolvió HTTP ${response.status}. Comprueba la dirección y vuelve a intentarlo.`, response);
   if (response.headers['content-type'] && !/html|xhtml/i.test(response.headers['content-type'])) return unavailable(new URL(response.url), country, category, 'unreachable', 'El destino no devolvió una página HTML que pueda analizarse.', response);
   if (!response.body.trim()) return unavailable(new URL(response.url), country, category, 'unreachable', 'El servidor devolvió una respuesta vacía. No hay contenido para evaluar.', response);
-  const audit = analyzeHtml(response, country, category);
+  const crawl = await crawlWebsite(response, fetchPage);
+  const audit = analyzeSitePages(crawl.pages, country, category);
+  audit.crawl = { attempted: crawl.attempted, failed: crawl.failed, limit: 10, limited: crawl.limited };
+  audit.contactScanVersion = CONTACT_SCAN_VERSION;
+  audit.limitations.push(`La revisión analizó ${crawl.pages.length} página${crawl.pages.length === 1 ? '' : 's'} del sitio, siguiendo enlaces internos hasta dos niveles (máximo diez páginas y doce segundos de exploración). Es una muestra de las secciones accesibles, no una revisión exhaustiva de todas las URL.`);
+  if (crawl.failed) audit.limitations.push(`${crawl.failed} página${crawl.failed === 1 ? '' : 's'} interna${crawl.failed === 1 ? '' : 's'} no ${crawl.failed === 1 ? 'pudo' : 'pudieron'} revisarse en esta consulta; puede haber hallazgos o contactos que no se hayan podido leer.`);
+  if (!audit.contacts.length) audit.limitations.push('No se encontraron contactos en el HTML de las páginas revisadas. Esto no confirma que la web carezca de ellos: pueden publicarse en otras secciones o cargarse con JavaScript.');
   if (audit.previewImage) try { await resolvePublicUrl(audit.previewImage); } catch { delete audit.previewImage; }
-  const pages = contactPages(response.body, response.url);
-  const contactResults = await Promise.allSettled(pages.map(page => fetchPage(page, { timeoutMs: 4000, maxBytes: 600000 })));
-  for (const result of contactResults) if (result.status === 'fulfilled' && result.value.status === 200 && new URL(result.value.url).origin === new URL(response.url).origin && /html/i.test(result.value.headers['content-type'] ?? 'text/html')) {
-    for (const contact of extractContacts(result.value.body, result.value.url)) if (!audit.contacts.some(c => c.type === contact.type && c.value === contact.value)) audit.contacts.push(contact);
-  }
-  audit.contacts = audit.contacts.slice(0, 12);
   if (input.usePageSpeed) await enrichPageSpeed(audit);
   return audit;
 }

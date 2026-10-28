@@ -298,6 +298,33 @@ h1 {
   letter-spacing: -0.02em;
 }
 
+.workspace-intro {
+  max-width: 860px;
+  margin: -8px 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.workspace-intro strong { color: var(--ink); }
+
+.site-coverage {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.site-coverage summary, .issue-pages summary { cursor: pointer; font-weight: 600; }
+.site-coverage p { margin-top: 12px; color: var(--muted); }
+.site-coverage ul, .issue-pages ul { margin: 12px 0 0; padding-left: 20px; }
+.site-coverage li, .issue-pages li { margin-top: 8px; overflow-wrap: anywhere; }
+.site-coverage li span { display: block; color: var(--muted); font-size: 12px; }
+.site-coverage a, .issue-pages a { text-decoration: underline; text-underline-offset: 3px; }
+.issue-pages { margin-top: 10px; font-size: 12px; }
+
 .heading-actions {
   display: flex;
   align-items: center;

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Bookmark, Check, ChevronDown, Copy, ExternalLink, Globe2, Grid2X2, List, LoaderCircle, Search, Settings2, SlidersHorizontal, Square, Star, Upload, User, X } from 'lucide-react';
 import { categories, countries, countryName, priority } from '@/lib/catalog';
 import type { Audit, Prospect, SearchResult } from '@/lib/types';
+import { canReuseAudit } from '@/lib/audit-version';
 import { contactMessage, contactWhatsappUrl, csvFile, downloadFile, emailUrl, formatPhone, hasNativeTemplate, localizedContactMessage, localizedEmailSubject, parseImport, resolveSiteLanguage, uniqueContacts } from '@/lib/client';
 
 type Section = 'results' | 'saved';
@@ -569,7 +570,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
             const candidate = queue.shift()!;
             try {
               const candidateHost = new URL(candidate.url).hostname.replace(/^www\./, '');
-              const cached = resultsRef.current.find(site => site.domain === candidateHost && site.status === 'active' && site.metrics.wordCount !== undefined && Date.now() - Date.parse(site.checkedAt) < 86_400_000);
+              const cached = resultsRef.current.find(site => site.domain === candidateHost && canReuseAudit(site));
               if (cached && (!pageSpeed || cached.metrics.performance !== null)) { cachedCount++; continue; }
               const now = Date.now();
               const waitMs = Math.max(0, nextAuditAt.current - now);
@@ -790,6 +791,12 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </div>
+
+        {section === 'results' && (
+          <p className="workspace-intro">
+            <strong>Stack - Búsqueda Inteligente.</strong> Encuentra negocios y plataformas con oportunidades de mejora web. Revisa sus páginas, compara los hallazgos y localiza sus contactos públicos.
+          </p>
+        )}
 
         {section === 'results' && (
           <form className="search-panel" onSubmit={event => { event.preventDefault(); void discover(options); }}>
@@ -1182,21 +1189,42 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
                       </div>
                       <div>
                         <span>Viewport móvil</span>
-                        <strong>{selected.metrics.viewport === null ? 'Sin evaluar' : selected.metrics.viewport ? 'Presente' : 'Ausente'}</strong>
+                        <strong>{selected.metrics.viewport === null ? 'Sin evaluar' : selected.pageReviews?.length ? selected.metrics.viewport ? 'En todas las páginas evaluables' : 'Falta en alguna página' : selected.metrics.viewport ? 'Presente' : 'Ausente'}</strong>
                       </div>
                       <div>
-                        <span>PageSpeed móvil</span>
+                        <span>PageSpeed móvil · página inicial</span>
                         <strong>{selected.metrics.performance === null ? 'Sin medir' : `${selected.metrics.performance}/100`}</strong>
                       </div>
                     </div>
                     {selected.metrics.wordCount !== undefined && (
-                      <div className="content-metrics" aria-label="Contenido del HTML analizado">
+                      <div className="content-metrics" aria-label="Recuentos del HTML de las páginas analizadas; incluyen elementos compartidos entre páginas">
                         <div><strong>{selected.metrics.wordCount.toLocaleString('es-PE')}</strong><span>palabras</span></div>
                         <div><strong>{selected.metrics.linkCount ?? '—'}</strong><span>enlaces</span></div>
                         <div><strong>{selected.metrics.imageCount ?? '—'}</strong><span>imágenes</span></div>
                         <div><strong>{selected.metrics.headingCount ?? '—'}</strong><span>títulos</span></div>
                       </div>
                     )}
+                    {selected.pageReviews?.length ? (
+                      <details className="site-coverage">
+                        <summary>{selected.pageReviews.length} {selected.pageReviews.length === 1 ? 'página analizada' : 'páginas analizadas'}</summary>
+                        <p>La prioridad reúne los hallazgos de estas páginas. Cada tipo de problema cuenta una sola vez, con el mayor peso observado. Los recuentos de contenido suman las páginas y pueden incluir elementos compartidos.</p>
+                        {selected.crawl && (
+                          <p>
+                            {selected.crawl.attempted} páginas consultadas · {selected.crawl.failed} sin analizar.
+                            {selected.crawl.limited ? ` Se alcanzó el límite de páginas, profundidad o tiempo de esta revisión (máximo ${selected.crawl.limit} páginas). Pueden quedar secciones sin revisar.` : ' Se recorrieron los enlaces internos disponibles dentro del alcance de esta revisión.'}
+                          </p>
+                        )}
+                        <ul>
+                          {selected.pageReviews.map(page => (
+                            <li key={page.url}>
+                              <a href={page.url} target="_blank" rel="noopener noreferrer">{new URL(page.url).host}{new URL(page.url).pathname}{new URL(page.url).search}</a>
+                              <span>{page.score === null ? 'Sin puntuación: requiere renderizar JavaScript' : `Prioridad ${page.score}/100`} · {page.metrics.wordCount ?? 0} palabras · {page.issueIds.length} hallazgos</span>
+                              <span>Viewport móvil: {page.metrics.viewport === null ? 'sin evaluar' : page.metrics.viewport ? 'presente' : 'ausente'} · H1: {page.metrics.h1 ?? '—'} · Imágenes sin alt: {page.metrics.imageAltMissing ?? '—'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
                     <div className="audit-heading">
                       <h2>Hallazgos detectados</h2>
                       <span>{selected.issues.length}</span>
@@ -1210,6 +1238,16 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
                           </div>
                           <p>{issue.detail}</p>
                           <small>{issueLabels[issue.category]}</small>
+                          {issue.sources?.length ? (
+                            <details className="issue-pages">
+                              <summary>Detectado en {issue.sources.length} {issue.sources.length === 1 ? 'página' : 'páginas'}</summary>
+                              <ul>
+                                {issue.sources.map(source => (
+                                  <li key={source}><a href={source} target="_blank" rel="noopener noreferrer">{new URL(source).host}{new URL(source).pathname}{new URL(source).search}</a></li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : null}
                         </div>
                       ))}
                       {!selected.issues.length && <p className="muted">No se detectaron problemas en las comprobaciones disponibles.</p>}
@@ -1353,7 +1391,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
                       </div>
                     ) : (
                       <p className="muted">
-                        No se detectaron contactos publicados.{' '}
+                        No se encontraron contactos en las páginas revisadas. Pueden existir en otras secciones o cargarse con JavaScript.{' '}
                         <a href={selected.url} target="_blank" rel="noopener noreferrer">Abrir la web</a>
                       </p>
                     )}

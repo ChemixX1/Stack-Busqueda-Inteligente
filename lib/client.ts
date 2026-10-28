@@ -217,7 +217,7 @@ export function parseImport(text: string): Prospect[] {
     const status = oneOf(s.status, ['active', 'unreachable', 'blocked'] as const);
     const score = numberOrNull(s.score, 100);
     if (status !== 'active' && score !== null) throw new Error('Las webs sin revisar no deben tener puntuación.');
-    const metrics = record(s.metrics); const ai = record(s.aiEvidence);
+    const ai = record(s.aiEvidence);
     if (typeof ai.detected !== 'boolean') invalid();
     const checkedAt = string(s.checkedAt, 64);
     if (!Number.isFinite(Date.parse(checkedAt))) throw new Error('La fecha del diagnóstico no es válida.');
@@ -228,20 +228,37 @@ export function parseImport(text: string): Prospect[] {
     });
     const issues: Issue[] = array(s.issues, 100).map(value => {
       const i = record(value); const points = numberOrNull(i.points, 100); if (points === null) invalid();
-      return { id: string(i.id, 120), title: string(i.title, 500), detail: string(i.detail, 5000), category: oneOf(i.category, ['structure','mobile','performance','accessibility','availability','security'] as const), severity: oneOf(i.severity, ['high','medium','low'] as const), points };
+      const issue: Issue = { id: string(i.id, 120), title: string(i.title, 500), detail: string(i.detail, 5000), category: oneOf(i.category, ['structure','mobile','performance','accessibility','availability','security'] as const), severity: oneOf(i.severity, ['high','medium','low'] as const), points };
+      if (i.sources !== undefined) issue.sources = array(i.sources, 12).map(source => safeWebUrl(source, isDemo));
+      return issue;
     });
     const result: Prospect = {
       id, url, domain: new URL(url).hostname.replace(/^www\./, ''), name: string(s.name, 500), description: string(s.description, 5000, true), country, category, status, score, issues, contacts,
       aiEvidence: { detected: ai.detected, label: string(ai.label, 500), evidence: array(ai.evidence, 40).map(v => string(v, 3000)) },
-      metrics: { responseMs: numberOrNull(metrics.responseMs, 3_600_000), htmlBytes: numberOrNull(metrics.htmlBytes, 1_000_000_000), viewport: booleanOrNull(metrics.viewport), title: booleanOrNull(metrics.title), h1: numberOrNull(metrics.h1, 1_000_000), imageAltMissing: numberOrNull(metrics.imageAltMissing, 1_000_000), performance: numberOrNull(metrics.performance, 100), accessibility: numberOrNull(metrics.accessibility, 100) },
+      metrics: parseMetrics(s.metrics),
       checkedAt: new Date(checkedAt).toISOString(), source: isDemo ? string(s.source, 2000) : safeWebUrl(s.source), limitations: array(s.limitations, 50).map(v => string(v, 5000)), saved: true,
     };
-    for (const key of ['wordCount', 'linkCount', 'domElements', 'headingCount', 'imageCount', 'blockingScripts'] as const) {
-      if (metrics[key] !== undefined) {
-        const count = numberOrNull(metrics[key], 10_000_000);
-        if (count === null || !Number.isInteger(count)) invalid();
-        result.metrics[key] = count;
-      }
+    if (s.pageReviews !== undefined) result.pageReviews = array(s.pageReviews, 12).map(value => {
+      const page = record(value);
+      return {
+        url: safeWebUrl(page.url, isDemo),
+        score: numberOrNull(page.score, 100),
+        issueIds: array(page.issueIds, 100).map(id => string(id, 120)),
+        metrics: parseMetrics(page.metrics),
+      };
+    });
+    if (s.crawl !== undefined) {
+      const crawl = record(s.crawl);
+      const attempted = integer(crawl.attempted, 100);
+      const failed = integer(crawl.failed, 100);
+      const limit = integer(crawl.limit, 100);
+      if (limit < 1 || failed > attempted || attempted > limit || typeof crawl.limited !== 'boolean') invalid();
+      result.crawl = { attempted, failed, limit, limited: crawl.limited };
+    }
+    if (s.contactScanVersion !== undefined) {
+      const version = numberOrNull(s.contactScanVersion, 1_000_000);
+      if (version === null || !Number.isInteger(version) || version < 1) invalid();
+      result.contactScanVersion = version;
     }
     if (s.demo !== undefined) result.demo = isDemo;
     if (s.stage !== undefined) result.stage = oneOf(s.stage, ['new','contacted','replied','closed'] as const);
@@ -263,6 +280,24 @@ export function parseImport(text: string): Prospect[] {
 
 function validEmail(value: string): boolean {
   return typeof value === 'string' && value.length <= 254 && /^[a-z\d.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z]{2,63}$/i.test(value);
+}
+function parseMetrics(value: unknown): Audit['metrics'] {
+  const metrics = record(value);
+  const result: Audit['metrics'] = {
+    responseMs: numberOrNull(metrics.responseMs, 3_600_000), htmlBytes: numberOrNull(metrics.htmlBytes, 1_000_000_000),
+    viewport: booleanOrNull(metrics.viewport), title: booleanOrNull(metrics.title),
+    h1: numberOrNull(metrics.h1, 1_000_000), imageAltMissing: numberOrNull(metrics.imageAltMissing, 1_000_000),
+    performance: numberOrNull(metrics.performance, 100), accessibility: numberOrNull(metrics.accessibility, 100),
+  };
+  for (const key of ['wordCount', 'linkCount', 'domElements', 'headingCount', 'imageCount', 'blockingScripts'] as const) {
+    if (metrics[key] !== undefined) result[key] = integer(metrics[key], 10_000_000);
+  }
+  return result;
+}
+function integer(value: unknown, max: number): number {
+  const parsed = numberOrNull(value, max);
+  if (parsed === null || !Number.isInteger(parsed)) invalid();
+  return parsed;
 }
 function invalid(): never { throw new Error('El archivo no tiene el formato de Stack o contiene datos inválidos.'); }
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(); return value as Record<string, unknown>; }

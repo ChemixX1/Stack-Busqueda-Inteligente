@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeHtml, contactPages, extractContacts, priorityScore } from '../lib/server/analyze';
+import { analyzeHtml, contactPages, extractContacts, priorityScore, reviewPages } from '../lib/server/analyze';
 import { auditWebsite } from '../lib/server/audit';
+import { CONTACT_SCAN_VERSION } from '../lib/audit-version';
 import type { PublicResponse } from '../lib/server/safe-fetch';
 
 const response = (body: string): PublicResponse => ({ url: 'https://negocio.org/', status: 200, headers: { 'content-type': 'text/html', 'strict-transport-security': 'max-age=31536000', 'content-security-policy': "default-src 'self'" }, body, bytes: Buffer.byteLength(body), responseMs: 100 });
@@ -15,9 +16,116 @@ test('contacts come from published content and valid links, excluding scripts an
   assert.ok(!contacts.some(c => c.value.includes('hidden')));
 });
 
-test('contact discovery is bounded and stays within the current origin', () => {
+test('contact discovery prioritizes contact links and stays within the business website', () => {
   const pages = contactPages('<a href="/contacto">Contacto</a><a href="https://other.org/contact">Contacto</a><a href="/sobre-nosotros">Nosotros</a><a href="/contacto-2">Contacto 2</a><a href="/contacto.pdf">PDF</a>', 'https://negocio.org/');
-  assert.deepEqual(pages, ['https://negocio.org/contacto', 'https://negocio.org/contacto-2']);
+  assert.deepEqual(pages, ['https://negocio.org/contacto', 'https://negocio.org/contacto-2', 'https://negocio.org/sobre-nosotros']);
+});
+
+test('contact links recognize Spanish labels, accessible labels, www aliases and normalized tracking URLs', () => {
+  const pages = contactPages(`<a href="/empresa">Quiénes somos</a><a href="/hablar" aria-label="Contáctanos">Icono</a><a href="https://www.negocio.org/contacto?utm_source=menu#equipo">Contacto</a><a href="https://www.negocio.org/contacto#ventas">Contacto duplicado</a><a href="#contacto">Sección actual</a><a href="https://negocio.org@other.org/contact">Externo</a><a href="https://otro.negocio.org/contact">Subdominio</a><a href="https://user:password@negocio.org/contact">Credenciales</a><a href="/contacto.js">Recurso</a>`, 'https://negocio.org/');
+  assert.deepEqual(pages, ['https://negocio.org/hablar', 'https://www.negocio.org/contacto', 'https://negocio.org/empresa']);
+});
+
+test('site review samples different content sections and excludes assets, account actions and external links', () => {
+  const links = `<a href="/contacto">Contacto</a>${Array.from({ length: 8 }, (_, index) => `<a href="/productos/${index}">Producto ${index}</a>`).join('')}<a href="/servicios/diseno">Diseño</a><a href="/blog/guia">Guía</a><a href="/login">Login</a><a href="/logout?next=contact">Contacto</a><a href="/?action=contact">Contacto</a><a href="/carrito">Carrito</a><a href="/?add-to-cart=3">Añadir producto</a><a href="/api/contact">API</a><a href="/foto.jpg">Foto</a><a href="https://externo.org/servicios">Externo</a>`;
+  const pages = reviewPages(links, 'https://negocio.org/');
+  assert.deepEqual(pages.slice(0, 4), ['https://negocio.org/contacto', 'https://negocio.org/productos/0', 'https://negocio.org/servicios/diseno', 'https://negocio.org/blog/guia']);
+  assert.ok(pages.every(url => !/login|logout|action=|carrito|add-to-cart|api\/|\.jpg|externo/.test(url)));
+  assert.deepEqual(contactPages(links, 'https://negocio.org/'), ['https://negocio.org/contacto']);
+});
+
+test('audits follow nested business pages and retain contacts from their actual source', async () => {
+  const bodies: Record<string, string> = {
+    '/': '<title>Negocio</title><a href="/empresa">Nosotros</a><a href="/servicios">Servicios</a>',
+    '/empresa': '<title>Empresa</title><a href="/hablar" aria-label="Contáctanos">Asesoría</a>',
+    '/servicios': '<title>Servicios</title><h1>Asesoría técnica</h1>',
+    '/hablar': '<title>Contacto</title><a href="mailto:ventas@negocio.org">Correo</a><a href="tel:+51987654321">Teléfono</a>',
+  };
+  const requested: string[] = [];
+  const audit = await auditWebsite({ url: 'https://negocio.org/' }, async (input, options) => {
+    const url = new URL(String(input)); requested.push(url.pathname);
+    if (url.pathname !== '/') { assert.ok(options?.timeoutMs! <= 4000); assert.equal(options?.maxBytes, 600000); }
+    assert.ok(Object.hasOwn(bodies, url.pathname), `Unexpected URL ${url.href}`);
+    return { ...response(bodies[url.pathname]), url: url.href };
+  });
+  assert.ok(requested.includes('/hablar'));
+  assert.deepEqual(audit.contacts.map(contact => [contact.type, contact.source]), [['email', 'https://negocio.org/hablar'], ['phone', 'https://negocio.org/hablar']]);
+  assert.equal(audit.contactScanVersion, CONTACT_SCAN_VERSION);
+  assert.equal(audit.pageReviews?.length, 4);
+  assert.deepEqual(audit.crawl, { attempted: 4, failed: 0, limit: 10, limited: false });
+});
+
+test('an audit starting at an isolated inner URL checks home navigation for other sections', async () => {
+  const bodies: Record<string, string> = {
+    '/productos/bicicleta': '<title>Bicicleta</title><h1>Producto</h1>',
+    '/': '<title>Negocio</title><a href="/nosotros">Nosotros</a>',
+    '/nosotros': '<title>Empresa</title><a href="https://www.negocio.org/contacto">Contacto</a>',
+    '/contacto': '<title>Contacto</title><p>WhatsApp: +51 987 654 321</p><a href="https://wa.me/51987654321">Chat</a>',
+  };
+  const audit = await auditWebsite({ url: 'https://negocio.org/productos/bicicleta' }, async input => {
+    const url = new URL(String(input));
+    assert.ok(Object.hasOwn(bodies, url.pathname), `Unexpected URL ${url.href}`);
+    return { ...response(bodies[url.pathname]), url: url.href };
+  });
+  assert.ok(audit.contacts.some(contact => contact.type === 'whatsapp' && contact.source === 'https://www.negocio.org/contacto'));
+  assert.equal(audit.crawl?.attempted, 4);
+});
+
+test('nested contact pages are prioritized before a long remaining catalogue queue', async () => {
+  const requested: string[] = [];
+  const audit = await auditWebsite({ url: 'https://negocio.org/' }, async input => {
+    const url = new URL(String(input)); requested.push(url.pathname);
+    const body = url.pathname === '/'
+      ? `<title>Negocio</title><a href="/empresa">Nosotros</a>${Array.from({ length: 12 }, (_, index) => `<a href="/servicios/${index}">Servicio ${index}</a>`).join('')}`
+      : url.pathname === '/empresa'
+        ? '<title>Empresa</title><a href="/hablar" aria-label="Contacto">Escríbenos</a>'
+        : url.pathname === '/hablar'
+          ? '<title>Contacto</title><a href="mailto:ventas@negocio.org">Correo</a>'
+          : '<title>Servicios</title><h1>Servicio</h1>';
+    return { ...response(body), url: url.href };
+  });
+  assert.equal(requested.length, 10);
+  assert.ok(requested.indexOf('/hablar') > 0 && requested.indexOf('/hablar') < 6);
+  assert.deepEqual(audit.contacts.map(contact => [contact.value, contact.source]), [['ventas@negocio.org', 'https://negocio.org/hablar']]);
+  assert.equal(audit.crawl?.limited, true);
+});
+
+test('crawling skips failed, blocked, non-HTML and externally redirected pages without losing successful results', async () => {
+  const requested: string[] = [];
+  const audit = await auditWebsite({ url: 'https://negocio.org/' }, async input => {
+    const url = new URL(String(input)); requested.push(url.pathname);
+    const page = { ...response('<title>Sección</title><p>falso@negocio.org</p>'), url: url.href };
+    if (url.pathname === '/') return { ...page, body: '<title>Negocio</title><a href="/contacto-falla">Contacto</a><a href="/support">Soporte</a><a href="/nosotros">Nosotros</a><a href="/servicios">Servicios</a><a href="/productos">Productos</a>' };
+    if (url.pathname === '/contacto-falla') throw new Error('Timeout');
+    if (url.pathname === '/support') return { ...page, url: 'https://externo.org/contact' };
+    if (url.pathname === '/nosotros') return { ...page, headers: { 'content-type': 'application/pdf' } };
+    if (url.pathname === '/servicios') return { ...page, body: '<title>Vercel Security Checkpoint</title><p>falso@negocio.org</p>' };
+    return { ...page, body: '<title>Productos</title><a href="mailto:real@negocio.org">Contacto</a>' };
+  });
+  assert.equal(requested.length, 6);
+  assert.deepEqual(audit.contacts.map(contact => contact.value), ['real@negocio.org']);
+  assert.equal(audit.crawl?.failed, 4);
+  assert.equal(audit.pageReviews?.length, 2);
+});
+
+test('whole-site crawling has a ten-page cap and a two-link depth limit', async () => {
+  let requested = 0;
+  const capped = await auditWebsite({ url: 'https://negocio.org/' }, async input => {
+    requested++;
+    const url = new URL(String(input));
+    return { ...response(`<title>Negocio</title>${url.pathname === '/' ? Array.from({ length: 30 }, (_, index) => `<a href="/servicios/${index}">Servicio ${index}</a>`).join('') : '<h1>Servicio</h1>'}`), url: url.href };
+  });
+  assert.equal(requested, 10);
+  assert.equal(capped.pageReviews?.length, 10);
+  assert.equal(capped.crawl?.limited, true);
+  const paths: string[] = [];
+  const bounded = await auditWebsite({ url: 'https://negocio.org/' }, async input => {
+    const url = new URL(String(input)); paths.push(url.pathname);
+    const next = url.pathname === '/' ? '/servicios' : url.pathname === '/servicios' ? '/servicios/diseno' : '/servicios/diseno/detalles';
+    return { ...response(`<title>Sección</title><a href="${next}">Detalles del servicio</a>`), url: url.href };
+  });
+  assert.deepEqual(paths, ['/', '/servicios', '/servicios/diseno']);
+  assert.equal(bounded.crawl?.limited, true);
 });
 
 test('healthy semantic HTML does not acquire invented mobile or AI findings', () => {
