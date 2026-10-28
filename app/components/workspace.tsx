@@ -338,7 +338,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [githubStars, setGithubStars] = useState(0);
+  const [githubStars, setGithubStars] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<ScanProgress>({ round: 0, found: 0, done: 0, failed: 0, phase: '' });
   const [notice, setNotice] = useState('');
@@ -396,23 +396,53 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
     setHydrated(true);
     const configController = new AbortController();
     fetch('/api/config', { headers: { 'X-Stack-Client': '1' }, signal: configController.signal }).then(readResponse<Config>).then(value => { if (mounted.current) setConfig(value); }).catch(() => {});
-    try {
-      const cachedStars = Number(sessionStorage.getItem('stack-repo-stars-v1'));
-      if (Number.isInteger(cachedStars) && cachedStars >= 0 && sessionStorage.getItem('stack-repo-stars-v1') !== null) {
-        setGithubStars(cachedStars);
-      } else {
-        fetch('https://api.github.com/repos/ChemixX1/Stack-Busqueda-Inteligente', { signal: configController.signal })
-          .then(res => res.ok ? res.json() : null)
-          .then(repo => {
-            if (!Number.isInteger(repo?.stargazers_count) || repo.stargazers_count < 0 || !mounted.current) return;
-            const total = repo.stargazers_count;
-            setGithubStars(total);
-            try { sessionStorage.setItem('stack-repo-stars-v1', String(total)); } catch {}
-          })
-          .catch(() => {});
-      }
-    } catch {}
     return () => { mounted.current = false; configController.abort(); controller.current?.abort(); };
+  }, []);
+
+  useEffect(() => {
+    const refreshController = new AbortController();
+    let inFlight = false;
+    let nextRefresh = 0;
+    try {
+      const cached = sessionStorage.getItem('stack-repo-stars-v1');
+      if (cached && /^\d+$/.test(cached) && Number.isSafeInteger(Number(cached))) setGithubStars(Number(cached));
+    } catch { /* Refresh still works when browser storage is unavailable. */ }
+
+    async function refreshStars() {
+      if (document.visibilityState === 'hidden' || inFlight || Date.now() < nextRefresh || refreshController.signal.aborted) return;
+      inFlight = true;
+      nextRefresh = Date.now() + 60_000;
+      try {
+        const response = await fetch('https://api.github.com/repos/ChemixX1/Stack-Busqueda-Inteligente', {
+          cache: 'no-store',
+          signal: AbortSignal.any([refreshController.signal, AbortSignal.timeout(8000)]),
+        });
+        if (!response.ok) {
+          const resetAt = Number(response.headers.get('x-ratelimit-reset')) * 1000;
+          nextRefresh = Math.max(Date.now() + 300_000, Number.isFinite(resetAt) ? resetAt : 0);
+          return;
+        }
+        const repo = await response.json();
+        if (refreshController.signal.aborted || !Number.isSafeInteger(repo?.stargazers_count) || repo.stargazers_count < 0) return;
+        setGithubStars(repo.stargazers_count);
+        try { sessionStorage.setItem('stack-repo-stars-v1', String(repo.stargazers_count)); } catch {}
+      } catch { /* Keep the last known count during temporary failures. */ }
+      finally { inFlight = false; }
+    }
+
+    void refreshStars();
+    const timer = setInterval(() => { void refreshStars(); }, 300_000);
+    const onReturn = () => { void refreshStars(); };
+    window.addEventListener('focus', onReturn);
+    window.addEventListener('online', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      refreshController.abort();
+      clearInterval(timer);
+      window.removeEventListener('focus', onReturn);
+      window.removeEventListener('online', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
   }, []);
 
   useEffect(() => {
@@ -712,7 +742,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
             <span className="github-label">Github</span>
             <span className="github-stars">
               <Star size={14} fill="currentColor" />
-              <span>{githubStars}</span>
+              <span aria-live="polite">{githubStars ?? '—'}</span>
             </span>
           </a>
           <button
