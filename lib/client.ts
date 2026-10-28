@@ -1,11 +1,12 @@
 import ipaddr from 'ipaddr.js';
 import { categories, countries } from './catalog';
+import { businessName } from './business-name';
 import type { Audit, Contact, Issue, Prospect } from './types';
 
 export { countryLanguage, hasNativeTemplate, localizedContactMessage, localizedEmailSubject, resolveSiteLanguage } from './i18n';
 
 export function contactMessage(site: Audit, sender = 'Stack') {
-  const opening = `Hola, equipo de ${site.name}. Soy de ${sender.trim() || 'Stack'}.`;
+  const opening = `Hola, equipo de ${businessName(site.name)}. Soy de ${sender.trim() || 'Stack'}.`;
   const issue = [...site.issues].sort((a, b) => b.points - a.points)[0];
   let finding = 'Me gustaría conversar sobre cómo mejorar la experiencia de su web.';
   if (site.status === 'active' && issue) {
@@ -183,7 +184,7 @@ export function whatsappUrl(phone: string, message: string) {
 
 export function emailUrl(email: string, name: string, message: string, customSubject?: string) {
   if (!validEmail(email)) return undefined;
-  const subject = customSubject || `Una idea para la web de ${name}`;
+  const subject = customSubject || `Una idea para la web de ${businessName(name)}`;
   return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
 }
 

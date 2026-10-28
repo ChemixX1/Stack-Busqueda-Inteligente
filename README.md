@@ -63,14 +63,6 @@ Opcionalmente, copia `.env.example` a `.env.local`:
 
 Reinicia el servidor al cambiar variables. Las claves solo se leen en el servidor.
 
-## SEO
-
-El título es **Stack - Búsqueda Inteligente**. La descripción, Open Graph y Twitter se generan en el servidor en el idioma detectado a partir del país o las preferencias del navegador, con traducciones locales y una descripción de respaldo. La estructura y el idioma de la interfaz no cambian por esta adaptación.
-
-Se incluyen URL canónica, datos estructurados, imagen social, manifiesto, `robots.txt` y `sitemap.xml`. Las fichas recuperadas desde el navegador no se indexan. El buscador decide el idioma y texto final de sus fragmentos; cambiar los metadatos no garantiza que Google muestre una descripción específica por país. No se anuncian versiones `hreflang` de contenido que no esté traducido.
-
-La portada permite indexación y contiene el nombre completo y una explicación visible del producto en el HTML inicial. Para comprobar por qué no aparece en Google, verifica la propiedad en [Google Search Console](https://search.google.com/search-console), envía `https://stack-busqueda-inteligente.vercel.app/sitemap.xml` e inspecciona la URL de inicio para solicitar su indexación. Este paso requiere acceso a la propiedad. [Google indica](https://developers.google.com/search/docs/crawling-indexing/ask-google-to-recrawl) que el rastreo puede tardar días o semanas y que solicitarlo no garantiza aparecer en resultados.
-
 ## Publicar en Vercel
 
 Configura el proyecto como Next.js, instala con `npm ci` y compila con `npm run build`. Para actualizar la instancia vinculada desde esta carpeta:

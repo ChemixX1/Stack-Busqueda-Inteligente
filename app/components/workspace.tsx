@@ -7,6 +7,7 @@ import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Bookmark, Check, ChevronDown,
 import { categories, countries, countryName, priority } from '@/lib/catalog';
 import type { Audit, Prospect, SearchResult } from '@/lib/types';
 import { canReuseAudit } from '@/lib/audit-version';
+import { businessName } from '@/lib/business-name';
 import { contactMessage, contactWhatsappUrl, csvFile, downloadFile, emailUrl, formatPhone, hasNativeTemplate, localizedContactMessage, localizedEmailSubject, parseImport, resolveSiteLanguage, uniqueContacts } from '@/lib/client';
 
 type Section = 'results' | 'saved';
@@ -471,7 +472,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
       fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Stack-Client': '1' },
-        body: JSON.stringify({ text: `Una idea para la web de ${siteName}`, target: lang }),
+        body: JSON.stringify({ text: `Una idea para la web de ${businessName(siteName)}`, target: lang }),
       })
         .then(res => res.ok ? res.json() : null)
         .then(data => {

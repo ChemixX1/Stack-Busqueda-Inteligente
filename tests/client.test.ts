@@ -43,6 +43,20 @@ test('unreachable sites use a tentative availability message, not invented desig
   assert.doesNotMatch(message, /cerrado|vulnerable|adaptación a celulares/);
 });
 
+test('contact greetings and subjects use the business name when a saved record contains a URL', () => {
+  for (const name of ['http://www.mangatown.com', 'https://www.mangatown.com/contacto?from=home', 'www.mangatown.com', 'mangatown.com', String.raw`http\://www\.mangatown.com`]) {
+    const site = { ...prospect(), name };
+    assert.match(contactMessage(site), /^Hola, equipo de mangatown\. Soy de Stack\./);
+    assert.doesNotMatch(localizedContactMessage(site, 'Stack', 'en'), /https?:|www\.|mangatown\.com/);
+    assert.match(localizedContactMessage(site, 'Stack', 'en'), /mangatown/);
+    assert.equal(localizedEmailSubject(name, 'es'), 'Una idea para la web de mangatown');
+    assert.equal(new URL(emailUrl('ventas@negocio.org', name, 'Hola')!).searchParams.get('subject'), 'Una idea para la web de mangatown');
+  }
+  assert.match(contactMessage({ ...prospect(), name: 'https://tienda.negocio.com.pe/contacto' }), /^Hola, equipo de negocio\./);
+  assert.match(contactMessage({ ...prospect(), name: 'MangaTown' }), /^Hola, equipo de MangaTown\./);
+  assert.match(contactMessage(prospect()), /^Hola, equipo de Tienda Sur\./);
+});
+
 test('WhatsApp and email links encode message text and reject malformed recipients', () => {
   const message = 'Hola & buenas\n¿Una propuesta? #Stack';
   const link = whatsappUrl('+51 (987) 654-321', message)!;

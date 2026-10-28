@@ -1,4 +1,5 @@
 import type { Audit } from './types';
+import { businessName } from './business-name';
 
 const COUNTRY_LANGUAGES: Record<string, string> = {
   // Spanish
@@ -587,6 +588,7 @@ export function hasNativeTemplate(lang: string): boolean {
 }
 
 export function localizedEmailSubject(name: string, lang: string): string {
+  name = businessName(name);
   if (lang === 'es') return `Una idea para la web de ${name}`;
   const pack = TEMPLATES[lang] ?? TEMPLATES.en;
   return pack.subject(name);
@@ -632,5 +634,5 @@ export function localizedContactMessage(site: Audit, sender = 'Stack', lang = 'e
             ? pack.benefits.services
             : pack.benefits.default;
 
-  return `${pack.opening(site.name, cleanSender)}\n\n${finding} ${benefit}\n\n${pack.closing}`;
+  return `${pack.opening(businessName(site.name), cleanSender)}\n\n${finding} ${benefit}\n\n${pack.closing}`;
 }
