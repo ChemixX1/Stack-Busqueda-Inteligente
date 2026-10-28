@@ -298,16 +298,6 @@ h1 {
   letter-spacing: -0.02em;
 }
 
-.workspace-intro {
-  max-width: 860px;
-  margin: -8px 0 24px;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.65;
-}
-
-.workspace-intro strong { color: var(--ink); }
-
 .site-coverage {
   margin: 20px 0;
   padding: 16px;

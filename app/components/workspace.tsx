@@ -794,12 +794,6 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
         </div>
 
         {section === 'results' && (
-          <p className="workspace-intro">
-            <strong>Stack - Búsqueda Inteligente.</strong> Encuentra negocios y plataformas con oportunidades de mejora web. Revisa sus páginas, compara los hallazgos y localiza sus contactos públicos.
-          </p>
-        )}
-
-        {section === 'results' && (
           <form className="search-panel" onSubmit={event => { event.preventDefault(); void discover(options); }}>
             <label className="search-field">
               <span>Negocio o ciudad</span>
