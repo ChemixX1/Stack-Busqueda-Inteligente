@@ -17,8 +17,6 @@ type ScanProgress = { round: number; found: number; done: number; failed: number
 type SelectOption = { value: string; label: string };
 
 const SAVED_KEY = 'stack-prospects-v1';
-const RESULTS_KEY = 'stack-results-v1';
-const OPTIONS_KEY = 'stack-search-v2';
 const contentIssues = new Set(['content-overload', 'unstructured-content', 'text-walls', 'repeated-content', 'generic-copy', 'link-overload', 'repetitive-description', 'placeholder-content']);
 const designIssues = new Set(['viewport', 'fixed-width', 'obsolete-markup', 'inline-styles', 'placeholder-content', 'unstructured-content', 'text-walls', 'content-overload', 'heading-order', 'missing-h1', 'zoom']);
 const defaultOptions: SearchOptions = { query: '', country: 'ALL', category: categories[0] };
@@ -321,8 +319,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const detailId = pathname.startsWith('/web/') ? pathname.split('/')[2] : null;
   const homeScroll = useRef(0);
-  const discoveryCursor = useRef<Record<string, number>>({});
-  const [hasSearched, setHasSearched] = useState(false);
+  const discoveryCursor = useRef(0);
   const [section, setSection] = useState<Section>('results');
   const [sites, setSites] = useState<Audit[]>([]);
   const [saved, setSaved] = useState<Prospect[]>([]);
@@ -357,7 +354,6 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
   const controller = useRef<AbortController | null>(null);
   const translateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextAuditAt = useRef(0);
-  const resultsRef = useRef<Audit[]>([]);
   const mounted = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -368,35 +364,25 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
     mounted.current = true;
     try { const stored = localStorage.getItem(SAVED_KEY); if (stored) setSaved(parseImport(stored).filter(site => !site.demo)); }
     catch { setToast('No se pudieron leer los guardados. Puedes importar una copia JSON.'); }
-    try { const stored = localStorage.getItem(RESULTS_KEY); if (stored) { const items = parseImport(stored).filter(site => !site.demo); resultsRef.current = items; setSites(items); } }
-    catch { setToast('No se pudieron restaurar los resultados anteriores.'); }
     try {
-      const stored = JSON.parse(localStorage.getItem(OPTIONS_KEY) || 'null');
-      if (stored && typeof stored.query === 'string' && countries.some(([code]) => code === stored.country) && categories.includes(stored.category)) setOptions({ query: stored.query.slice(0, 200), country: stored.country, category: stored.category });
       setSender(localStorage.getItem('stack-sender') || 'Stack');
+      // Remove temporary search data left by earlier versions.
+      localStorage.removeItem('stack-results-v1');
+      localStorage.removeItem('stack-search-v2');
+      sessionStorage.removeItem('stack-workspace-v1');
     } catch { /* Defaults remain usable when preferences are unavailable. */ }
-    try {
-      const state = JSON.parse(sessionStorage.getItem('stack-workspace-v1') || 'null');
-      if (state) {
-        if (state.section === 'saved' || state.section === 'results') setSection(state.section);
-        if (['0', '15', '35', '65'].includes(state.threshold)) setThreshold(state.threshold);
-        if (['all', 'design', 'content'].includes(state.issueType) || Object.hasOwn(issueLabels, state.issueType)) setIssueType(state.issueType);
-        if (typeof state.contactOnly === 'boolean') setContactOnly(state.contactOnly);
-        if (state.stage === 'all' || Object.hasOwn(stageLabels, state.stage)) setStage(state.stage);
-        if (typeof state.localQuery === 'string') setLocalQuery(state.localQuery.slice(0, 200));
-        if (['score', 'recent', 'name'].includes(state.sort)) setSort(state.sort);
-        if (state.view === 'grid' || state.view === 'list') setView(state.view);
-        if (Number.isFinite(state.scroll)) homeScroll.current = Math.max(0, state.scroll);
-        if (state.hasSearched === true) setHasSearched(true);
-        if (state.cursors && typeof state.cursors === 'object') {
-          discoveryCursor.current = Object.fromEntries(Object.entries(state.cursors).filter(([, value]) => Number.isInteger(value) && Number(value) >= 0 && Number(value) < 60)) as Record<string, number>;
-        }
-      }
-    } catch { /* The in-memory workspace remains available without browser storage. */ }
+    // Back/forward cache restores the entire document, including its in-memory search.
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) window.location.reload(); };
+    window.addEventListener('pageshow', onPageShow);
     setHydrated(true);
     const configController = new AbortController();
     fetch('/api/config', { headers: { 'X-Stack-Client': '1' }, signal: configController.signal }).then(readResponse<Config>).then(value => { if (mounted.current) setConfig(value); }).catch(() => {});
-    return () => { mounted.current = false; configController.abort(); controller.current?.abort(); };
+    return () => {
+      mounted.current = false;
+      configController.abort();
+      controller.current?.abort();
+      window.removeEventListener('pageshow', onPageShow);
+    };
   }, []);
 
   useEffect(() => {
@@ -450,11 +436,6 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
     try { localStorage.setItem(SAVED_KEY, JSON.stringify(saved)); }
     catch { setToast('No queda espacio local. Exporta tus guardados para conservarlos.'); }
   }, [saved, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(options)); } catch { /* Search still works without storage. */ }
-  }, [options, hydrated]);
 
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 5000); return () => clearTimeout(timer); }, [toast]);
 
@@ -539,16 +520,6 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
   }, [hydrated, detailId]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    const persist = () => {
-      try { sessionStorage.setItem('stack-workspace-v1', JSON.stringify({ section, threshold, issueType, contactOnly, stage, localQuery, sort, view, hasSearched, scroll: homeScroll.current, cursors: discoveryCursor.current })); } catch { /* Session cache is optional. */ }
-    };
-    persist();
-    window.addEventListener('pagehide', persist);
-    return () => window.removeEventListener('pagehide', persist);
-  }, [hydrated, section, threshold, issueType, contactOnly, stage, localQuery, sort, view, hasSearched, detailId, busy]);
-
-  useEffect(() => {
     if (!selected) return;
     setFocusIssue('');
     setMessageLang('es');
@@ -557,25 +528,26 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id]);
 
-  function persistResults(items: Audit[]) {
-    resultsRef.current = items;
-    setSites(items);
-    try { localStorage.setItem(RESULTS_KEY, JSON.stringify(items)); }
-    catch { setToast('No queda espacio local. Exporta los resultados para conservarlos.'); }
+  function changeSearchOption(key: keyof SearchOptions, value: string) {
+    if (options[key] === value) return;
+    setOptions({ ...options, [key]: value });
+    discoveryCursor.current = 0;
+    setSites([]);
+    setNotice('');
+    setError('');
   }
 
   async function discover(input: SearchOptions) {
     if (controller.current || !hydrated) return;
-    setHasSearched(true);
     const scan = new AbortController();
     controller.current = scan;
     const signal = scan.signal;
     setBusy(true); setError(''); setNotice(''); setSection('results'); setLocalQuery('');
     const state: ScanProgress = { round: 0, found: 0, done: 0, failed: 0, phase: 'Buscando webs…' };
-    const searchKey = JSON.stringify(input);
-    const startOffset = discoveryCursor.current[searchKey] || 0;
+    const startOffset = discoveryCursor.current;
+    let results = sites;
     const seen = new Set<string>();
-    let cachedCount = 0;
+    let alreadyReviewed = 0;
     let completed = 0;
     let firstFailure = '';
     let providerWarning = '';
@@ -586,8 +558,8 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
         state.round = round + 1; state.phase = 'Buscando webs…'; update();
         const response = await fetch('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stack-Client': '1' }, body: JSON.stringify({ ...input, limit: 8, offset: (startOffset + round) % 60 }), signal: AbortSignal.any([signal, AbortSignal.timeout(65000)]) });
         const search = await readResponse<SearchResult>(response);
-        discoveryCursor.current[searchKey] = (startOffset + round + 1) % 60;
         if (signal.aborted) break;
+        discoveryCursor.current = (startOffset + round + 1) % 60;
         if (search.warning) providerWarning = search.warning;
         const resolvedCategory = search.category || input.category;
         const candidates = search.results.filter(candidate => {
@@ -601,8 +573,8 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
             const candidate = queue.shift()!;
             try {
               const candidateHost = new URL(candidate.url).hostname.replace(/^www\./, '');
-              const cached = resultsRef.current.find(site => site.domain === candidateHost && canReuseAudit(site));
-              if (cached && (!pageSpeed || cached.metrics.performance !== null)) { cachedCount++; continue; }
+              const existing = results.find(site => site.domain === candidateHost && canReuseAudit(site));
+              if (existing && (!pageSpeed || existing.metrics.performance !== null)) { alreadyReviewed++; continue; }
               const now = Date.now();
               const waitMs = Math.max(0, nextAuditAt.current - now);
               nextAuditAt.current = Math.max(now, nextAuditAt.current) + 2200;
@@ -610,8 +582,9 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
               const audit = await readResponse<Audit>(await fetch('/api/audit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Stack-Client': '1' }, body: JSON.stringify({ url: candidate.url, country: input.country, category: resolvedCategory, usePageSpeed: pageSpeed && !!config?.pageSpeedConfigured }), signal: AbortSignal.any([signal, AbortSignal.timeout(65000)]) }));
               if (signal.aborted || !mounted.current) return;
               const domainKey = audit.domain.replace(/^www\./, '');
-              const rest = resultsRef.current.filter(site => site.domain.replace(/^www\./, '') !== domainKey && site.id !== audit.id);
-              persistResults([audit, ...rest].slice(0, 1000));
+              const rest = results.filter(site => site.domain.replace(/^www\./, '') !== domainKey && site.id !== audit.id);
+              results = [audit, ...rest].slice(0, 1000);
+              setSites(results);
               setSaved(previous => previous.map(prospect => prospect.id === audit.id || prospect.domain === audit.domain ? { ...audit, saved: true, stage: prospect.stage, note: prospect.note } : prospect));
               completed++;
             } catch (failure) {
@@ -624,7 +597,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
         await Promise.all([worker(), worker(), worker()]);
         if (round < 5) await pause(800, signal);
       }
-      if (mounted.current && !signal.aborted) setNotice(state.found === 0 ? 'No se encontraron webs para esta búsqueda. Prueba otro rubro o una ciudad.' : `${completed} webs revisadas${cachedCount ? ` · ${cachedCount} recuperadas de caché` : ''}${state.failed ? ` · ${state.failed} revisiones fallidas. ${firstFailure}` : ''}.${providerWarning ? ` ${providerWarning}` : ''}`);
+      if (mounted.current && !signal.aborted) setNotice(state.found === 0 ? 'No se encontraron webs para esta búsqueda. Prueba otro rubro o una ciudad.' : `${completed} webs revisadas${alreadyReviewed ? ` · ${alreadyReviewed} ya en esta lista` : ''}${state.failed ? ` · ${state.failed} revisiones fallidas. ${firstFailure}` : ''}.${providerWarning ? ` ${providerWarning}` : ''}`);
     } catch (failure) {
       if (mounted.current && !signal.aborted) setError(`${failure instanceof Error ? failure.message : 'No se pudo completar la búsqueda.'}${completed ? ` Se conservaron ${completed} revisiones de esta búsqueda.` : ''}`);
     } finally {
@@ -831,7 +804,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
                 <Search size={18} />
                 <input
                   value={options.query}
-                  onChange={event => setOptions({ ...options, query: event.target.value })}
+                  onChange={event => changeSearchOption('query', event.target.value)}
                   placeholder="Todos los negocios, o escribe una ciudad…"
                   maxLength={200}
                   disabled={busy}
@@ -844,7 +817,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
                 ariaLabel="País de búsqueda"
                 value={options.country}
                 options={countryOptions}
-                onChange={country => setOptions({ ...options, country })}
+                onChange={country => changeSearchOption('country', country)}
                 disabled={busy}
               />
             </div>
@@ -854,7 +827,7 @@ export default function Workspace({ children }: { children: React.ReactNode }) {
                 ariaLabel="Rubro de búsqueda"
                 value={options.category}
                 options={categoryOptions}
-                onChange={category => setOptions({ ...options, category })}
+                onChange={category => changeSearchOption('category', category)}
                 disabled={busy}
               />
             </div>

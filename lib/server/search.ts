@@ -647,5 +647,5 @@ export async function searchWeb(input: SearchInput, fetcher: typeof fetch = fetc
   }
   if (emptyProvider) return { results: [], provider: emptyProvider, query, category, warning: 'No se encontraron sitios web para esta consulta. Prueba otro rubro o ubicación.' };
   const rateLimited = failures.some(error => error.status === 429 || error.code === 'SEARCH_BLOCKED');
-  throw new SearchError(rateLimited ? 'Los buscadores públicos han limitado las consultas. Espera un minuto y vuelve a buscar; tus resultados anteriores se conservan.' : 'No se pudo consultar ningún buscador. Comprueba tu conexión y vuelve a intentarlo.', rateLimited ? 'SEARCH_RATE_LIMIT' : 'SEARCH_UNAVAILABLE', rateLimited ? 429 : 503);
+  throw new SearchError(rateLimited ? 'Los buscadores públicos han limitado las consultas. Espera un minuto y vuelve a buscar.' : 'No se pudo consultar ningún buscador. Comprueba tu conexión y vuelve a intentarlo.', rateLimited ? 'SEARCH_RATE_LIMIT' : 'SEARCH_UNAVAILABLE', rateLimited ? 429 : 503);
 }

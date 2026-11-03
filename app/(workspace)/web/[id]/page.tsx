@@ -5,5 +5,5 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-// Records are restored from the browser cache in the persistent workspace.
+// The shared workspace displays records from the current search or saved prospects.
 export default function DetailPage() { return null; }
